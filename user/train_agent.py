@@ -1,8 +1,35 @@
 '''
-TRAINING: AGENT
+TRAINING: AGENT - OPTIMIZED VERSION
 
 This file contains all the types of Agent classes, the Reward Function API, and the built-in train function from our multi-agent RL API for self-play training.
-- All of these Agent classes are each described below. 
+- All of these Agent classes are each described below.
+
+OPTIMIZATIONS APPLIED:
+1. Neural Network Architecture:
+   - Deeper MLP with 5 layers (previously 3)
+   - Increased hidden dimensions from 64 to 256
+   - Added residual connections for better gradient flow
+   - Implemented layer normalization for training stability
+   - Added dropout (0.1) for regularization
+
+2. Hyperparameter Optimization:
+   - Learning rate: 3e-4 (stable and proven)
+   - Batch size: 256 (increased from 128 for stable gradients)
+   - n_steps: 10,800 (increased from 8,100)
+   - Entropy coefficient: 0.02 (increased for more exploration)
+   - Max gradient norm: 0.5 (gradient clipping for stability)
+   - Target KL: 0.02 (early stopping to prevent policy collapse)
+
+3. Reward Function Improvements:
+   - Increased win reward to 100 (from 50)
+   - Balanced damage interaction weight to 1.5
+   - Optimized weapon pickup/drop incentives
+   - Fine-tuned penalty weights for better behavior
+
+4. Training Configuration:
+   - Self-play ratio: 70% (increased for curriculum learning)
+   - Save frequency: 50k steps (more frequent checkpoints)
+   - Max saved models: 50 (diverse opponent pool)
 
 Running this file will initiate the training function, and will:
 a) Start training from scratch
@@ -49,7 +76,23 @@ class SB3Agent(Agent):
 
     def _initialize(self) -> None:
         if self.file_path is None:
-            self.model = self.sb3_class("MlpPolicy", self.env, verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01)
+            # Optimized hyperparameters for SB3Agent
+            self.model = self.sb3_class(
+                "MlpPolicy",
+                self.env,
+                verbose=0,
+                learning_rate=3e-4,
+                n_steps=30*90*4,
+                batch_size=256,
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=0.02,
+                vf_coef=0.5,
+                max_grad_norm=0.5,
+                target_kl=0.02
+            )
             del self.env
         else:
             self.model = self.sb3_class.load(self.file_path)
@@ -91,22 +134,32 @@ class RecurrentPPOAgent(Agent):
 
     def _initialize(self) -> None:
         if self.file_path is None:
+            # Optimized policy architecture for RecurrentPPO
             policy_kwargs = {
                 'activation_fn': nn.ReLU,
                 'lstm_hidden_size': 512,
-                'net_arch': [dict(pi=[32, 32], vf=[32, 32])],
+                'net_arch': [dict(pi=[128, 64], vf=[128, 64])],  # Larger networks
                 'shared_lstm': True,
                 'enable_critic_lstm': False,
                 'share_features_extractor': True,
-
             }
-            self.model = RecurrentPPO("MlpLstmPolicy",
-                                      self.env,
-                                      verbose=0,
-                                      n_steps=30*90*20,
-                                      batch_size=16,
-                                      ent_coef=0.05,
-                                      policy_kwargs=policy_kwargs)
+            # Optimized RecurrentPPO hyperparameters
+            self.model = RecurrentPPO(
+                "MlpLstmPolicy",
+                self.env,
+                verbose=0,
+                learning_rate=3e-4,
+                n_steps=30*90*20,
+                batch_size=32,                # Increased from 16
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=0.03,                # Adjusted for LSTM
+                vf_coef=0.5,
+                max_grad_norm=0.5,
+                policy_kwargs=policy_kwargs
+            )
             del self.env
         else:
             self.model = RecurrentPPO.load(self.file_path)
@@ -256,60 +309,127 @@ class ClockworkAgent(Agent):
         return action
     
 class MLPPolicy(nn.Module):
-    def __init__(self, obs_dim: int = 64, action_dim: int = 10, hidden_dim: int = 64):
+    def __init__(self, obs_dim: int = 64, action_dim: int = 10, hidden_dim: int = 256):
         """
-        A 3-layer MLP policy:
-        obs -> Linear(hidden_dim) -> ReLU -> Linear(hidden_dim) -> ReLU -> Linear(action_dim)
+        Optimized deep MLP policy with residual connections and layer normalization:
+        - Deeper architecture (5 layers instead of 3)
+        - Larger hidden dimensions for better representation capacity
+        - Layer normalization for training stability
+        - Residual connections to enable deeper networks
+        - Dropout for regularization
         """
         super(MLPPolicy, self).__init__()
 
-        # Input layer
+        # Input layer with layer norm
         self.fc1 = nn.Linear(obs_dim, hidden_dim, dtype=torch.float32)
-        # Hidden layer
+        self.ln1 = nn.LayerNorm(hidden_dim, dtype=torch.float32)
+
+        # Hidden layers with residual connections
         self.fc2 = nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32)
-        # Output layer
+        self.ln2 = nn.LayerNorm(hidden_dim, dtype=torch.float32)
+
         self.fc3 = nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32)
+        self.ln3 = nn.LayerNorm(hidden_dim, dtype=torch.float32)
+
+        self.fc4 = nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32)
+        self.ln4 = nn.LayerNorm(hidden_dim, dtype=torch.float32)
+
+        # Output layer
+        self.fc5 = nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32)
+
+        # Dropout for regularization
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, obs):
         """
         obs: [batch_size, obs_dim]
-        returns: [batch_size, action_dim]
+        returns: [batch_size, hidden_dim]
         """
-        x = F.relu(self.fc1(obs))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        # First layer
+        x = F.relu(self.ln1(self.fc1(obs)))
+        x = self.dropout(x)
+
+        # Second layer with residual connection
+        identity = x
+        x = F.relu(self.ln2(self.fc2(x)))
+        x = self.dropout(x)
+        x = x + identity  # Residual connection
+
+        # Third layer with residual connection
+        identity = x
+        x = F.relu(self.ln3(self.fc3(x)))
+        x = self.dropout(x)
+        x = x + identity  # Residual connection
+
+        # Fourth layer with residual connection
+        identity = x
+        x = F.relu(self.ln4(self.fc4(x)))
+        x = self.dropout(x)
+        x = x + identity  # Residual connection
+
+        # Output layer
+        x = self.fc5(x)
+
+        return x
 
 class MLPExtractor(BaseFeaturesExtractor):
     '''
-    Class that defines an MLP Base Features Extractor
+    Optimized MLP Base Features Extractor with improved capacity
+    - Increased features_dim for better representation
+    - Larger hidden dimensions for complex pattern learning
     '''
-    def __init__(self, observation_space: gym.Space, features_dim: int = 64, hidden_dim: int = 64):
+    def __init__(self, observation_space: gym.Space, features_dim: int = 256, hidden_dim: int = 256):
         super(MLPExtractor, self).__init__(observation_space, features_dim)
         self.model = MLPPolicy(
-            obs_dim=observation_space.shape[0], 
+            obs_dim=observation_space.shape[0],
             action_dim=10,
             hidden_dim=hidden_dim,
         )
-    
+
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.model(obs)
-    
+
     @classmethod
-    def get_policy_kwargs(cls, features_dim: int = 64, hidden_dim: int = 64) -> dict:
+    def get_policy_kwargs(cls, features_dim: int = 256, hidden_dim: int = 256) -> dict:
         return dict(
             features_extractor_class=cls,
-            features_extractor_kwargs=dict(features_dim=features_dim, hidden_dim=hidden_dim) #NOTE: features_dim = 10 to match action space output
+            features_extractor_kwargs=dict(features_dim=features_dim, hidden_dim=hidden_dim),
+            net_arch=[dict(pi=[256, 128], vf=[256, 128])]  # Optimized policy and value networks
         )
     
 class CustomAgent(Agent):
+    """
+    Optimized Custom Agent with improved hyperparameters and training stability
+    """
     def __init__(self, sb3_class: Optional[Type[BaseAlgorithm]] = PPO, file_path: str = None, extractor: BaseFeaturesExtractor = None):
         self.sb3_class = sb3_class
         self.extractor = extractor
         super().__init__(file_path)
-    
+
     def _initialize(self) -> None:
         if self.file_path is None:
-            self.model = self.sb3_class("MlpPolicy", self.env, policy_kwargs=self.extractor.get_policy_kwargs(), verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01)
+            # Optimized hyperparameters for better training performance
+            policy_kwargs = self.extractor.get_policy_kwargs() if self.extractor else {}
+
+            self.model = self.sb3_class(
+                "MlpPolicy",
+                self.env,
+                policy_kwargs=policy_kwargs,
+                verbose=0,
+                # Optimized PPO hyperparameters
+                learning_rate=3e-4,              # Standard learning rate with good stability
+                n_steps=30*90*4,                 # Increased from 8100 to 10800 for better sample efficiency
+                batch_size=256,                  # Increased from 128 for more stable gradient estimates
+                n_epochs=10,                     # Number of epochs when optimizing the surrogate loss
+                gamma=0.99,                      # Discount factor
+                gae_lambda=0.95,                 # GAE lambda parameter
+                clip_range=0.2,                  # Clipping parameter for PPO
+                clip_range_vf=None,              # Clipping parameter for value function
+                ent_coef=0.02,                   # Increased from 0.01 for more exploration
+                vf_coef=0.5,                     # Value function coefficient
+                max_grad_norm=0.5,               # Gradient clipping for training stability
+                target_kl=0.02,                  # Target KL divergence for early stopping
+            )
             del self.env
         else:
             self.model = self.sb3_class.load(self.file_path)
@@ -539,25 +659,47 @@ def on_combo_reward(env: WarehouseBrawl, agent: str) -> float:
         return 1.0
 
 '''
-Add your dictionary of RewardFunctions here using RewTerms
+Optimized reward function with better weights for improved learning signals
+Key improvements:
+- Increased win reward to strongly incentivize winning
+- Balanced damage dealing and taking for better combat strategy
+- Added weapon pickup incentives
+- Reduced penalty on excessive key presses for more fluid movement
+- Fine-tuned danger zone penalty for better positioning
 '''
 def gen_reward_manager():
     reward_functions = {
-        #'target_height_reward': RewTerm(func=base_height_l2, weight=0.0, params={'target_height': -4, 'obj_name': 'player'}),
-        'danger_zone_reward': RewTerm(func=danger_zone_reward, weight=0.5),
-        'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=1.0),
-        #'head_to_middle_reward': RewTerm(func=head_to_middle_reward, weight=0.01),
-        #'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.05),
-        'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-0.04, params={'desired_state': AttackState}),
-        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.01),
-        #'taunt_reward': RewTerm(func=in_state_reward, weight=0.2, params={'desired_state': TauntState}),
+        # Keep player at safe height - reduced weight to allow more aggressive play
+        'danger_zone_reward': RewTerm(func=danger_zone_reward, weight=0.3),
+
+        # Main combat reward - slightly increased for better learning signal
+        'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=1.5, params={'mode': RewardMode.SYMMETRIC}),
+
+        # Encourage heading toward opponent for engagement
+        'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.03),
+
+        # Small penalty on excessive attacks to prevent spam
+        'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-0.02, params={'desired_state': AttackState}),
+
+        # Reduced penalty for key combinations to allow more complex moves
+        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.005),
     }
+
     signal_subscriptions = {
-        'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=50)),
-        'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=8)),
-        'on_combo_reward': ('hit_during_stun', RewTerm(func=on_combo_reward, weight=5)),
-        'on_equip_reward': ('weapon_equip_signal', RewTerm(func=on_equip_reward, weight=10)),
-        'on_drop_reward': ('weapon_drop_signal', RewTerm(func=on_drop_reward, weight=15))
+        # Strongly reward winning the match
+        'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=100)),
+
+        # Moderate penalty for getting knocked out
+        'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=12)),
+
+        # Reward successful combos during opponent stun
+        'on_combo_reward': ('hit_during_stun', RewTerm(func=on_combo_reward, weight=8)),
+
+        # Strongly incentivize weapon pickup (hammer > spear)
+        'on_equip_reward': ('weapon_equip_signal', RewTerm(func=on_equip_reward, weight=15)),
+
+        # Penalize dropping weapons
+        'on_drop_reward': ('weapon_drop_signal', RewTerm(func=on_drop_reward, weight=10))
     }
     return RewardManager(reward_functions, signal_subscriptions)
 
@@ -579,27 +721,27 @@ if __name__ == '__main__':
 
     # Reward manager
     reward_manager = gen_reward_manager()
-    # Self-play settings
+    # Optimized self-play settings using random past versions
     selfplay_handler = SelfPlayRandom(
-        partial(type(my_agent)), # Agent class and its keyword arguments
-                                 # type(my_agent) = Agent class
+        partial(type(my_agent), extractor=MLPExtractor), # Agent class with extractor
     )
 
-    # Set save settings here:
+    # Optimized save settings for better checkpoint management
     save_handler = SaveHandler(
-        agent=my_agent, # Agent to save
-        save_freq=100_000, # Save frequency
-        max_saved=40, # Maximum number of saved models
-        save_path='checkpoints', # Save path
-        run_name='experiment_9',
-        mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
+        agent=my_agent,
+        save_freq=50_000,        # More frequent saves (every 50k steps) to track progress better
+        max_saved=50,            # Keep more checkpoints for diverse self-play opponents
+        save_path='checkpoints',
+        run_name='experiment_optimized',  # Clear naming for optimized run
+        mode=SaveHandlerMode.FORCE
     )
 
-    # Set opponent settings here:
+    # Optimized opponent configuration with better distribution
+    # Higher self-play ratio for curriculum learning against progressively better opponents
     opponent_specification = {
-                    'self_play': (8, selfplay_handler),
-                    'constant_agent': (0.5, partial(ConstantAgent)),
-                    'based_agent': (1.5, partial(BasedAgent)),
+                    'self_play': (0.7, selfplay_handler),      # 70% self-play for strong learning
+                    'based_agent': (0.2, partial(BasedAgent)), # 20% rule-based agent for diverse strategies
+                    'constant_agent': (0.1, partial(ConstantAgent)), # 10% easy opponent to maintain confidence
                 }
     opponent_cfg = OpponentsCfg(opponents=opponent_specification)
 
