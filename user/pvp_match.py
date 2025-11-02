@@ -1,17 +1,23 @@
 # import skvideo
 # import skvideo.io
-from environment.environment import RenderMode
-from environment.agent import SB3Agent, CameraResolution, RecurrentPPOAgent, BasedAgent, UserInputAgent, ConstantAgent, run_match, run_real_time_match, gen_reward_manager
-from user.my_agent import SubmittedAgent, ConstantAgent
 
-reward_manager = gen_reward_manager()
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from environment.environment import RenderMode
+from environment.agent import SB3Agent, CameraResolution, RecurrentPPOAgent, BasedAgent, UserInputAgent, run_match, run_real_time_match
+from user.my_agent import SubmittedAgent
+
+# reward_manager = gen_reward_manager()
 
 experiment_dir_1 = "experiment_6/" #input('Model experiment directory name (e.g. experiment_1): ')
 model_name_1 = "rl_model00_steps" #input('Name of first model (e.g. rl_model_100_steps): ')
 
 my_agent = UserInputAgent()
 #opponent = SubmittedAgent(None)
-opponent = ConstantAgent()
+opponent = SubmittedAgent(file_path='checkpoints/experiment_optimized_v5/rl_model_889547_steps.zip')
+
 # my_agent = UserInputAgent()
 # opponent = ConstantAgent()
 

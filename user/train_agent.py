@@ -36,6 +36,12 @@ a) Start training from scratch
 b) Continue training from a specific timestep given an input `file_path`
 '''
 
+import sys
+import os
+
+# Add parent directory to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # -------------------------------------------------------------------
 # ----------------------------- IMPORTS -----------------------------
 # -------------------------------------------------------------------
@@ -531,7 +537,7 @@ def damage_interaction_reward(
 
 def danger_zone_reward(
     env: WarehouseBrawl,
-    zone_penalty: int = 1,
+    zone_penalty: int = 30,
     zone_height: float = 4.2
 ) -> float:
     """
@@ -711,13 +717,18 @@ The main function runs training. You can change configurations such as the Agent
 '''
 if __name__ == '__main__':
     # Create agent
-    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+    # my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
 
     # Start here if you want to train from scratch. e.g:
     #my_agent = RecurrentPPOAgent()
 
     # Start here if you want to train from a specific timestep. e.g:
-    #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_3/rl_model_120006_steps.zip')
+    # my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_3/rl_model_830777_steps.zip')
+    my_agent = CustomAgent(
+        sb3_class=PPO,
+        extractor=MLPExtractor,
+        file_path='checkpoints/experiment_optimized/rl_model_1725670_steps.zip'
+    )
 
     # Reward manager
     reward_manager = gen_reward_manager()
@@ -732,7 +743,7 @@ if __name__ == '__main__':
         save_freq=50_000,        # More frequent saves (every 50k steps) to track progress better
         max_saved=50,            # Keep more checkpoints for diverse self-play opponents
         save_path='checkpoints',
-        run_name='experiment_optimized',  # Clear naming for optimized run
+        run_name='experiment_optimized_v5',  # Clear naming for optimized run
         mode=SaveHandlerMode.FORCE
     )
 

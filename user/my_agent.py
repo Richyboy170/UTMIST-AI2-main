@@ -58,3 +58,21 @@ class SubmittedAgent(Agent):
     def learn(self, env, total_timesteps, log_interval: int = 4):
         self.model.set_env(env)
         self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval)
+    
+    def gen_reward_manager():
+        reward_functions = {
+            # Keep player at safe height - reduced weight to allow more aggressive play
+            'danger_zone_reward': RewTerm(func=danger_zone_reward, weight=0.3),
+
+            # Main combat reward - slightly increased for better learning signal
+            'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=1.5, params={'mode': RewardMode.SYMMETRIC}),
+
+            # Encourage heading toward opponent for engagement
+            'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.03),
+
+            # Small penalty on excessive attacks to prevent spam
+            'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-0.02, params={'desired_state': AttackState}),
+
+            # Reduced penalty for key combinations to allow more complex moves
+            'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.005),
+        }
